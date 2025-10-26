@@ -1,10 +1,23 @@
+use std::io;
+use colored::Colorize;
 
-pub fn handle_app_loop() {
-    // loop {
-    //
-    // }
+fn write_greet() {
+    println!("{}'s File System - {}", "MrEll3n".green(), env!("CARGO_PKG_VERSION").yellow());
 }
 
-pub fn write_greet() {
-    println!("MrEll3n's File System - {}\n", env!("CARGO_PKG_VERSION"));
+fn write_prefix() {
+    eprint!("> ");
+}
+
+pub fn handle_app_loop() {
+    write_greet();
+    let stdin = io::stdin();
+    loop {
+        write_prefix();
+        let mut user_input = String::new();
+        let _ = stdin.read_line(&mut user_input);
+        if user_input.trim_end() == "exit" {
+            break
+        }
+    }
 }

@@ -1,8 +1,7 @@
 mod utils;
-mod tui;
-use utils::{arg_man};
+use utils::{tui};
 
 fn main() {
-    
+    tui::handle_app_loop();
 }
 
