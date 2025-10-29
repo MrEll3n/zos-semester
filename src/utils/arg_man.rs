@@ -17,7 +17,7 @@ pub fn handle_prog_args() {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--help" => handle_help(true),
-            _ => handle_help(true),
+            _ => (),
         }
     }
 }
