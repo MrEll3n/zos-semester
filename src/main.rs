@@ -1,4 +1,5 @@
 mod utils;
+mod commands;
 use utils::{arg_man, tui};
 
 fn main() -> std::io::Result<()> {

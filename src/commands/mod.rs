@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 pub struct Context {}
 
-type Handler = fn(&[String], &mut Context);
+type Handler = fn(&[&str], &mut Context);
 
 pub struct Registry {
     pub map: HashMap<&'static str, Handler>,
@@ -15,13 +15,17 @@ impl Registry {
             "command1",
             crate::commands::command1::handle_argv as Handler,
         );
+        map.insert(
+            "exit",
+            crate::commands::exit::handle_argv as Handler,
+        );
 
         Self { map }
     }
 
-    pub fn dispatch(&self, name: &str, argv: &[String], context: &mut Context) {
+    pub fn dispatch(&self, name: &str, argv: &[&str], context: &mut Context) {
         if let Some(handler) = self.map.get(name) {
-            handler(argv, ctx);
+            handler(argv, context);
         } else {
             eprintln!("Unknown command: {name}");
         }
@@ -29,3 +33,4 @@ impl Registry {
 }
 
 pub mod command1;
+pub mod exit;
