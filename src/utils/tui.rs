@@ -1,19 +1,22 @@
-use std::io;
+use crate::commands::{Context, Registry};
 use colored::Colorize;
-use crate::commands::{Registry, Context};
+use std::io;
 
 fn write_greet() {
-    println!("{}'s File System - {}", "MrEll3n".green(), env!("CARGO_PKG_VERSION").yellow());
+    println!(
+        "{}'s File System - {}",
+        "MrEll3n".green(),
+        env!("CARGO_PKG_VERSION").yellow()
+    );
 }
 
 fn write_prefix() {
     eprint!("> ");
 }
 
-pub fn handle_app_loop() {
+pub fn handle_app_loop(context: &mut Context) {
     let stdin = io::stdin();
     let registry = Registry::new();
-    let mut context = Context {};
 
     write_greet();
     loop {
@@ -23,17 +26,17 @@ pub fn handle_app_loop() {
 
         // user input
         let _ = stdin.read_line(&mut user_input);
-        
+
         // preparing user input to be formated into 'command' and 'args'
         let trimmed = user_input.trim();
         if trimmed.is_empty() {
-            continue
+            continue;
         }
         let mut it = trimmed.split_whitespace();
         let command = it.next().unwrap();
         let args: Vec<&str> = it.collect();
 
         // command dispatch
-        registry.dispatch(command, &args, &mut context);
+        registry.dispatch(command, &args, context);
     }
 }

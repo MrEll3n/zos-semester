@@ -1,3 +1,5 @@
+use crate::commands::Context;
+use crate::utils::file_man::handle_fs;
 use std::{env, process};
 
 fn handle_help(exit: bool) {
@@ -7,7 +9,7 @@ fn handle_help(exit: bool) {
     }
 }
 
-pub fn handle_prog_args() {
+pub fn handle_prog_args(context: &mut Context) {
     let mut it = env::args().skip(1).peekable();
 
     if it.peek().is_none() {
@@ -17,7 +19,7 @@ pub fn handle_prog_args() {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--help" => handle_help(true),
-            _ => (),
+            fs_path => handle_fs(fs_path, context),
         }
     }
 }
