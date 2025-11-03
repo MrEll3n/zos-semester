@@ -1,4 +1,4 @@
-pub mod arg_man;
-pub mod tui;
-pub mod file_man;
+pub mod cli;
 pub mod exit_codes;
+pub mod file_man;
+pub mod tui;

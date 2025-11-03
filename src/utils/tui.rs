@@ -1,4 +1,5 @@
-use crate::commands::{Context, Registry};
+use crate::commands::Registry;
+use crate::context::Context;
 use colored::Colorize;
 use std::io;
 
