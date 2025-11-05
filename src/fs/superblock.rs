@@ -1,6 +1,4 @@
-pub const FS_MAGIC: [u8; 4] = *b"ELFS";
-pub const VERSION: u16 = 1;
-pub const DEFAULT_BLOCK_SIZE: u32 = 4096;
+use crate::fs::consts::*;
 
 #[repr(C)]
 pub struct Superblock {
@@ -21,3 +19,21 @@ pub struct Superblock {
     pub data_start: u32,    // 4 B
     pub root_inode_id: u32, // 4 B
 }
+
+// impl Default for Superblock {
+//     fn default() -> Self {
+//         Self {
+//             magic: FS_MAGIC,
+//             version: FS_VERSION,
+//             block_size: DEFAULT_BLOCK_SIZE,
+//             total_blocks: ,
+//             bitmap_start: u32,
+//             bitmap_blocks: u32,
+//             inode_table_start: u32,
+//             inode_table_blocks: u32,
+//             inode_count: DEFAULT_INODE_COUNT,
+//             data_start: u32,
+//             root_inode_id: u32,
+//         }
+//     }
+// }

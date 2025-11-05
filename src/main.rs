@@ -1,5 +1,6 @@
 mod commands;
 mod context;
+mod fs;
 mod utils;
 
 use context::Context;
