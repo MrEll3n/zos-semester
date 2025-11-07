@@ -1,6 +1,6 @@
 use crate::fs::consts::*;
 
-#[repr(C)]
+#[repr(C)] //
 pub struct Superblock {
     // fs metadata
     pub magic: [u8; 4], // 4 B

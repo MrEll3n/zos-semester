@@ -1,4 +1,4 @@
-use crate::fs::consts::{DEFAULT_BLOCK_SIZE, FS_MAGIC, FS_VERSION};
+use crate::fs::consts::{DEFAULT_BLOCK_SIZE, FS_MAGIC, FS_VERSION, INODE_SIZE};
 use crate::fs::superblock::Superblock;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -97,4 +97,51 @@ pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
         data_start: load_u32(32),
         root_inode_id: load_u32(36),
     })
+}
+
+pub fn compute_layout(
+    fs_bytes: u64,
+    block_size: u32,
+    bpi: u32,
+) -> (
+    Superblock,
+    u32, /*inode_tbl_blocks*/
+    u32, /*bitmap_blocks*/
+) {
+    let bs = block_size as u64;
+    let total_blocks = (fs_bytes / bs) as u32;
+
+    // inode count per BPI (bytes-per-inode)
+    let inode_count = ((fs_bytes / (bpi as u64)).max(1)) as u32;
+    let inode_table_bytes = (inode_count as u64) * (INODE_SIZE as u64);
+    let inode_table_blocks = ((inode_table_bytes + bs - 1) / bs) as u32;
+
+    let mut bitmap_blocks = 1u32;
+    for _ in 0..3 {
+        let overhead_wo_bitmap = 1 + inode_table_blocks;
+        let data_blocks_guess = total_blocks.saturating_sub(overhead_wo_bitmap + bitmap_blocks);
+        let bits = data_blocks_guess as u64;
+        let bytes = (bits + 7) / 8;
+        bitmap_blocks = ((bytes + bs - 1) / bs) as u32;
+        if bitmap_blocks == 0 {
+            bitmap_blocks = 1;
+        }
+    }
+
+    let data_start = 1 + bitmap_blocks + inode_table_blocks;
+
+    let sb = Superblock {
+        magic: FS_MAGIC,
+        version: FS_VERSION,
+        block_size: block_size as u16,
+        total_blocks,
+        bitmap_start: 1,
+        bitmap_blocks,
+        inode_table_start: 1 + bitmap_blocks,
+        inode_table_blocks,
+        inode_count,
+        data_start,
+        root_inode_id: 0,
+    };
+    (sb, inode_table_blocks, bitmap_blocks)
 }
