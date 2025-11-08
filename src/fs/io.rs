@@ -55,31 +55,23 @@ pub fn read_span(
 
 pub fn write_superblock(f: &mut File, sb: &Superblock) -> std::io::Result<()> {
     let mut block0 = vec![0u8; BLOCK_SIZE as usize];
-    block0[0..4].copy_from_slice(&sb.magic);
-    block0[4..6].copy_from_slice(&sb.version.to_le_bytes());
-    block0[6..8].copy_from_slice(&sb.block_size.to_le_bytes());
-    block0[8..12].copy_from_slice(&sb.total_blocks.to_le_bytes());
-    block0[12..16].copy_from_slice(&sb.bitmap_start.to_le_bytes());
-    block0[16..20].copy_from_slice(&sb.bitmap_blocks.to_le_bytes());
-    block0[20..24].copy_from_slice(&sb.inode_table_start.to_le_bytes());
-    block0[24..28].copy_from_slice(&sb.inode_table_blocks.to_le_bytes());
-    block0[28..32].copy_from_slice(&sb.inode_count.to_le_bytes());
-    block0[32..36].copy_from_slice(&sb.data_start.to_le_bytes());
-    block0[36..40].copy_from_slice(&sb.root_inode_id.to_le_bytes());
-    write_block(f, DEFAULT_BLOCK_SIZE, 0, &block0)?;
+    block0[0..7].copy_from_slice(&sb.fs_size.to_le_bytes());
+    block0[8..11].copy_from_slice(&sb.magic);
+    block0[12..15].copy_from_slice(&sb.root_inode_id.to_le_bytes());
+    block0[16..19].copy_from_slice(&sb.block_start.to_le_bytes());
+    block0[20..23].copy_from_slice(&sb.block_count.to_le_bytes());
+    block0[24..27].copy_from_slice(&sb.inode_start.to_le_bytes());
+    block0[28..31].copy_from_slice(&sb.inode_count.to_le_bytes());
+
+    write_block(f, BLOCK_SIZE, 0, &block0)?;
     Ok(())
 }
 
 pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
-    let mut block0 = vec![0u8; DEFAULT_BLOCK_SIZE as usize];
-    read_block(f, DEFAULT_BLOCK_SIZE, 0, &mut block0)?;
+    let mut block0 = vec![0u8; BLOCK_SIZE as usize];
+    read_block(f, BLOCK_SIZE, 0, &mut block0)?;
     if &block0[0..4] != FS_MAGIC {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Bad FS magic"));
-    }
-
-    let version = u16::from_le_bytes([block0[5], block0[6]]);
-    if version != FS_VERSION {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Bad Version"));
     }
 
     let load_u16 = |i: usize| u16::from_le_bytes(block0[i..i + 2].try_into().unwrap());
