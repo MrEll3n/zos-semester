@@ -1,5 +1,5 @@
-use crate::fs::consts::{DEFAULT_BLOCK_SIZE, FS_MAGIC, FS_VERSION, INODE_SIZE};
-use crate::fs::superblock::Superblock;
+use crate::fs::consts::{BLOCK_SIZE, FS_MAGIC, INODE_SIZE};
+use crate::fs::layout::Superblock;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
@@ -54,7 +54,7 @@ pub fn read_span(
 }
 
 pub fn write_superblock(f: &mut File, sb: &Superblock) -> std::io::Result<()> {
-    let mut block0 = vec![0u8; DEFAULT_BLOCK_SIZE as usize];
+    let mut block0 = vec![0u8; BLOCK_SIZE as usize];
     block0[0..4].copy_from_slice(&sb.magic);
     block0[4..6].copy_from_slice(&sb.version.to_le_bytes());
     block0[6..8].copy_from_slice(&sb.block_size.to_le_bytes());
