@@ -1,5 +1,5 @@
 use crate::fs::consts::{BLOCK_SIZE, FS_MAGIC, INODE_SIZE};
-use crate::fs::layout::Superblock;
+use crate::fs::layout::{Inode, Superblock};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
@@ -62,6 +62,8 @@ pub fn write_superblock(f: &mut File, sb: &Superblock) -> std::io::Result<()> {
     block0[20..24].copy_from_slice(&sb.block_count.to_le_bytes());
     block0[24..28].copy_from_slice(&sb.inode_start.to_le_bytes());
     block0[28..32].copy_from_slice(&sb.inode_count.to_le_bytes());
+    block0[32..36].copy_from_slice(&sb.bitmap_start.to_le_bytes());
+    block0[36..40].copy_from_slice(&sb.bitmap_count.to_le_bytes());
 
     write_block(f, BLOCK_SIZE, 0, &block0)?;
     Ok(())
@@ -82,6 +84,8 @@ pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
     let block_count = u32::from_le_bytes(block0[20..24].try_into().unwrap());
     let inode_start = u32::from_le_bytes(block0[24..28].try_into().unwrap());
     let inode_count = u32::from_le_bytes(block0[28..32].try_into().unwrap());
+    let bitmap_start = u32::from_le_bytes(block0[32..36].try_into().unwrap());
+    let bitmap_count = u32::from_le_bytes(block0[36..40].try_into().unwrap());
 
     Ok(Superblock {
         fs_size,
@@ -91,6 +95,8 @@ pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
         block_count,
         inode_start,
         inode_count,
+        bitmap_start,
+        bitmap_count,
     })
 }
 
@@ -111,10 +117,12 @@ pub fn compute_layout(fs_bytes: u64, block_size: u32, bytes_per_inode: u32) -> S
             fs_size: fs_bytes,
             magic: FS_MAGIC,
             root_inode_id: 0,
-            inode_start: 1,
-            inode_count: 0,
             block_start: 1,
             block_count: 0,
+            inode_start: 1,
+            inode_count: 0,
+            bitmap_start: 1,
+            bitmap_count: 0,
         };
     }
 
@@ -142,16 +150,105 @@ pub fn compute_layout(fs_bytes: u64, block_size: u32, bytes_per_inode: u32) -> S
     let inode_table_blocks_final =
         (((inode_count_final as u64).saturating_mul(inode_size_bytes) + block_size_bytes - 1)
             / block_size_bytes) as u32;
-    let data_blocks_final = blocks_total.saturating_sub(inode_table_blocks_final);
+
+    // Estimate number of bitmap blocks required to track data blocks.
+    // Each bitmap block holds (block_size_bytes * 8) bits -> that many data blocks.
+    let mut bitmap_blocks: u32 = 0;
+    for _ in 0..3 {
+        let data_blocks_tmp = blocks_total.saturating_sub(inode_table_blocks_final + bitmap_blocks);
+        let bits_per_bitmap_block = (block_size_bytes * 8) as u64;
+        let needed = ((data_blocks_tmp as u64) + bits_per_bitmap_block - 1) / bits_per_bitmap_block;
+        let needed_u32 = needed as u32;
+        if needed_u32 == bitmap_blocks {
+            break;
+        }
+        bitmap_blocks = needed_u32;
+    }
+    let data_blocks_final = blocks_total.saturating_sub(inode_table_blocks_final + bitmap_blocks);
 
     // Step 4: Populate superblock
     Superblock {
         fs_size: fs_bytes,
         magic: FS_MAGIC,
         root_inode_id: 0,
-        inode_start: 1,
-        inode_count: inode_count_final,
-        block_start: 1 + inode_table_blocks_final,
+        block_start: 1 + bitmap_blocks + inode_table_blocks_final,
         block_count: data_blocks_final,
+        inode_start: 1 + bitmap_blocks,
+        inode_count: inode_count_final,
+        bitmap_start: 1,
+        bitmap_count: bitmap_blocks,
     }
+}
+
+pub fn read_inode(f: &mut File, sb: &Superblock, inode_id: u32) -> io::Result<Inode> {
+    if inode_id >= sb.inode_count {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "inode_id out of range",
+        ));
+    }
+
+    let block_size_bytes = BLOCK_SIZE as u64;
+    let inode_table_base = (sb.inode_start as u64) * block_size_bytes;
+    let inode_offset = inode_table_base + (inode_id as u64) * (INODE_SIZE as u64);
+
+    let mut buf = vec![0u8; INODE_SIZE];
+    f.seek(SeekFrom::Start(inode_offset))?;
+    f.read_exact(&mut buf)?;
+
+    let file_size = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+    let id = u32::from_le_bytes(buf[8..12].try_into().unwrap());
+
+    let mut single_directs = [0u32; 5];
+    for i in 0..5 {
+        let start = 12 + i * 4;
+        single_directs[i] = u32::from_le_bytes(buf[start..start + 4].try_into().unwrap());
+    }
+
+    let double_indirect = u32::from_le_bytes(buf[32..36].try_into().unwrap());
+    let triple_indirect = u32::from_le_bytes(buf[36..40].try_into().unwrap());
+    let is_directory = buf[40];
+    let mut _reserved = [0u8; 7];
+    _reserved.copy_from_slice(&buf[41..48]);
+
+    Ok(Inode {
+        file_size,
+        id,
+        single_directs,
+        double_indirect,
+        triple_indirect,
+        is_directory,
+        _reserved,
+    })
+}
+
+pub fn write_inode(f: &mut File, sb: &Superblock, inode_id: u32, inode: &Inode) -> io::Result<()> {
+    if inode_id >= sb.inode_count {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "inode_id out of range",
+        ));
+    }
+
+    let block_size_bytes = BLOCK_SIZE as u64;
+    let inode_table_base = (sb.inode_start as u64) * block_size_bytes;
+    let inode_offset = inode_table_base + (inode_id as u64) * (INODE_SIZE as u64);
+
+    let mut buf = vec![0u8; INODE_SIZE];
+
+    // Serialize fields to little-endian byte layout
+    buf[0..8].copy_from_slice(&inode.file_size.to_le_bytes());
+    buf[8..12].copy_from_slice(&inode.id.to_le_bytes());
+    for i in 0..5 {
+        let start = 12 + i * 4;
+        buf[start..start + 4].copy_from_slice(&inode.single_directs[i].to_le_bytes());
+    }
+    buf[32..36].copy_from_slice(&inode.double_indirect.to_le_bytes());
+    buf[36..40].copy_from_slice(&inode.triple_indirect.to_le_bytes());
+    buf[40] = inode.is_directory;
+    buf[41..48].copy_from_slice(&inode._reserved);
+
+    f.seek(SeekFrom::Start(inode_offset))?;
+    f.write_all(&buf)?;
+    Ok(())
 }

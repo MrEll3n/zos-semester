@@ -8,6 +8,8 @@ pub struct Superblock {
     pub block_count: u32,   // 4 B (offset 20..23)
     pub inode_start: u32,   // 4 B (offset 24..27)
     pub inode_count: u32,   // 4 B (offset 28..31)
+    pub bitmap_start: u32,  // 4 B
+    pub bitmap_count: u32,  // 4 B
 }
 
 // Structure that represents one inode - 48 B
@@ -21,3 +23,6 @@ pub struct Inode {
     pub is_directory: u8,         // 1  (offset 40)
     pub _reserved: [u8; 7],       // 7  (offset 41..47)
 }
+
+#[repr(C)]
+pub struct Directory
