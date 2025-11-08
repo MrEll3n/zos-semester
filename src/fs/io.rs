@@ -70,24 +70,27 @@ pub fn write_superblock(f: &mut File, sb: &Superblock) -> std::io::Result<()> {
 pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
     let mut block0 = vec![0u8; BLOCK_SIZE as usize];
     read_block(f, BLOCK_SIZE, 0, &mut block0)?;
-    if &block0[0..4] != FS_MAGIC {
+
+    let fs_size = u64::from_le_bytes(block0[0..8].try_into().unwrap());
+    let magic: [u8; 4] = block0[8..12].try_into().unwrap();
+    if magic != FS_MAGIC {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Bad FS magic"));
     }
 
-    let load_u16 = |i: usize| u16::from_le_bytes(block0[i..i + 2].try_into().unwrap());
-    let load_u32 = |i: usize| u32::from_le_bytes(block0[i..i + 4].try_into().unwrap());
+    let root_inode_id = u32::from_le_bytes(block0[12..16].try_into().unwrap());
+    let block_start = u32::from_le_bytes(block0[16..20].try_into().unwrap());
+    let block_count = u32::from_le_bytes(block0[20..24].try_into().unwrap());
+    let inode_start = u32::from_le_bytes(block0[24..28].try_into().unwrap());
+    let inode_count = u32::from_le_bytes(block0[28..32].try_into().unwrap());
+
     Ok(Superblock {
-        magim: FS_MAGIC,
-        version: load_u16(4),
-        block_size: load_u16(6),
-        total_blocks: load_u32(8),
-        bitmap_start: load_u32(12),
-        bitmap_blocks: load_u32(16),
-        inode_table_start: load_u32(20),
-        inode_table_blocks: load_u32(24),
-        inode_count: load_u32(28),
-        data_start: load_u32(32),
-        root_inode_id: load_u32(36),
+        fs_size,
+        magic,
+        root_inode_id,
+        block_start,
+        block_count,
+        inode_start,
+        inode_count,
     })
 }
 
