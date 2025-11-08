@@ -77,7 +77,7 @@ pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
     let load_u16 = |i: usize| u16::from_le_bytes(block0[i..i + 2].try_into().unwrap());
     let load_u32 = |i: usize| u32::from_le_bytes(block0[i..i + 4].try_into().unwrap());
     Ok(Superblock {
-        magic: FS_MAGIC,
+        magim: FS_MAGIC,
         version: load_u16(4),
         block_size: load_u16(6),
         total_blocks: load_u32(8),
