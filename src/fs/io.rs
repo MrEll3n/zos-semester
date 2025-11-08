@@ -94,14 +94,17 @@ pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
     })
 }
 
-pub fn compute_layout(fs_bytes: u64, block_size: u32, avg_blocks_per_inode: u32) -> Superblock {
-    let block_size = block_size as u64;
-    let inode_size = INODE_SIZE as u64;
-    let bpi = avg_blocks_per_inode.max(1) as u64;
+pub fn compute_layout(fs_bytes: u64, block_size: u32, bytes_per_inode: u32) -> Superblock {
+    let block_size_bytes = block_size as u64;
+    let inode_size_bytes = INODE_SIZE as u64;
 
-    // 1.
-    let blocks_total_sb = (fs_bytes / block_size) as u32;
-    let blocks_total = blocks_total_sb.saturating_sub(1); // without SB
+    // BPI (bytes) -> K (blocks per inode), min 1
+    let bpi_bytes = (bytes_per_inode as u64).max(1);
+    let avg_data_blocks_per_inode = ((bpi_bytes) / block_size_bytes).max(1) as u32;
+
+    // Total block count (including superblock) and usable blocks excluding superblock
+    let blocks_total_sb = (fs_bytes / block_size_bytes) as u32;
+    let blocks_total = blocks_total_sb.saturating_sub(1); // exclude superblock
 
     if blocks_total == 0 {
         return Superblock {
@@ -115,37 +118,40 @@ pub fn compute_layout(fs_bytes: u64, block_size: u32, avg_blocks_per_inode: u32)
         };
     }
 
-    // 1) Inode count estimation
-    let denom = bpi.saturating_mul(block_size).saturating_add(inode_size) as u128;
+    // Step 1: Estimate inode count: I_est = floor((usable_blocks*block_size_bytes) / (avg_data_blocks_per_inode*block_size_bytes + inode_size_bytes))
+    let denom = (avg_data_blocks_per_inode as u64)
+        .saturating_mul(block_size_bytes)
+        .saturating_add(inode_size_bytes) as u128;
     let inode_count_est =
-        ((blocks_total as u128).saturating_mul(block_size as u128) / denom) as u32;
+        ((blocks_total as u128).saturating_mul(block_size_bytes as u128) / denom) as u32;
     let inode_count_est = inode_count_est.max(1);
 
-    // 2) Inode size and Data size estimation
-    let inode_size_est =
-        ((inode_count_est as u64).saturating_mul(inode_size) + block_size - 1) / block_size;
-    let inode_size_est_u32 = (inode_size_est as u32).min(blocks_total);
-    let data_size_est = blocks_total.saturating_sub(inode_size_est_u32);
+    // Step 2: Inode table and data blocks (estimate)
+    let inode_table_blocks_est =
+        ((inode_count_est as u64).saturating_mul(inode_size_bytes) + block_size_bytes - 1)
+            / block_size_bytes;
+    let inode_table_blocks_est_u32 = (inode_table_blocks_est as u32).min(blocks_total);
+    let data_blocks_est = blocks_total.saturating_sub(inode_table_blocks_est_u32);
 
-    // 3) one time correction
-    let inode_count_final = inode_count_est.min(if bpi > 0 {
-        data_size_est / (bpi as u32)
+    // Step 3: One-shot correction: ensure I_final <= floor(D_est / K)
+    let inode_count_final = inode_count_est.min(if avg_data_blocks_per_inode > 0 {
+        data_blocks_est / avg_data_blocks_per_inode
     } else {
-        data_size_est
+        data_blocks_est
     });
-    let inode_size_final = (((inode_count_final as u64).saturating_mul(inode_size) + block_size
-        - 1)
-        / block_size) as u32;
-    let data_size_final = blocks_total.saturating_sub(inode_size_final);
+    let inode_table_blocks_final =
+        (((inode_count_final as u64).saturating_mul(inode_size_bytes) + block_size_bytes - 1)
+            / block_size_bytes) as u32;
+    let data_blocks_final = blocks_total.saturating_sub(inode_table_blocks_final);
 
-    // 4) Write into the superblock
+    // Step 4: Populate superblock
     Superblock {
         fs_size: fs_bytes,
         magic: FS_MAGIC,
         root_inode_id: 0,
         inode_start: 1,
         inode_count: inode_count_final,
-        block_start: 1 + inode_size_final,
-        block_count: data_size_final,
+        block_start: 1 + inode_table_blocks_final,
+        block_count: data_blocks_final,
     }
 }
