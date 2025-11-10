@@ -54,16 +54,19 @@ pub fn read_span(
 }
 
 pub fn write_superblock(f: &mut File, sb: &Superblock) -> std::io::Result<()> {
+    // Serialize in the exact order defined in layout.rs:
+    // fs_size, magic, root_inode_id, bitmap_start, bitmap_count,
+    // block_start, block_count, inode_start, inode_count
     let mut block0 = vec![0u8; BLOCK_SIZE as usize];
     block0[0..8].copy_from_slice(&sb.fs_size.to_le_bytes());
     block0[8..12].copy_from_slice(&sb.magic);
     block0[12..16].copy_from_slice(&sb.root_inode_id.to_le_bytes());
-    block0[16..20].copy_from_slice(&sb.block_start.to_le_bytes());
-    block0[20..24].copy_from_slice(&sb.block_count.to_le_bytes());
-    block0[24..28].copy_from_slice(&sb.inode_start.to_le_bytes());
-    block0[28..32].copy_from_slice(&sb.inode_count.to_le_bytes());
-    block0[32..36].copy_from_slice(&sb.bitmap_start.to_le_bytes());
-    block0[36..40].copy_from_slice(&sb.bitmap_count.to_le_bytes());
+    block0[16..20].copy_from_slice(&sb.bitmap_start.to_le_bytes());
+    block0[20..24].copy_from_slice(&sb.bitmap_count.to_le_bytes());
+    block0[24..28].copy_from_slice(&sb.block_start.to_le_bytes());
+    block0[28..32].copy_from_slice(&sb.block_count.to_le_bytes());
+    block0[32..36].copy_from_slice(&sb.inode_start.to_le_bytes());
+    block0[36..40].copy_from_slice(&sb.inode_count.to_le_bytes());
 
     write_block(f, BLOCK_SIZE, 0, &block0)?;
     Ok(())
@@ -80,23 +83,23 @@ pub fn read_superblock(f: &mut File) -> std::io::Result<Superblock> {
     }
 
     let root_inode_id = u32::from_le_bytes(block0[12..16].try_into().unwrap());
-    let block_start = u32::from_le_bytes(block0[16..20].try_into().unwrap());
-    let block_count = u32::from_le_bytes(block0[20..24].try_into().unwrap());
-    let inode_start = u32::from_le_bytes(block0[24..28].try_into().unwrap());
-    let inode_count = u32::from_le_bytes(block0[28..32].try_into().unwrap());
-    let bitmap_start = u32::from_le_bytes(block0[32..36].try_into().unwrap());
-    let bitmap_count = u32::from_le_bytes(block0[36..40].try_into().unwrap());
+    let bitmap_start = u32::from_le_bytes(block0[16..20].try_into().unwrap());
+    let bitmap_count = u32::from_le_bytes(block0[20..24].try_into().unwrap());
+    let block_start = u32::from_le_bytes(block0[24..28].try_into().unwrap());
+    let block_count = u32::from_le_bytes(block0[28..32].try_into().unwrap());
+    let inode_start = u32::from_le_bytes(block0[32..36].try_into().unwrap());
+    let inode_count = u32::from_le_bytes(block0[36..40].try_into().unwrap());
 
     Ok(Superblock {
         fs_size,
         magic,
         root_inode_id,
+        bitmap_start,
+        bitmap_count,
         block_start,
         block_count,
         inode_start,
         inode_count,
-        bitmap_start,
-        bitmap_count,
     })
 }
 
