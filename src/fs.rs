@@ -1,4 +1,4 @@
 pub mod consts;
-pub mod dir_ops;
+pub mod filesystem;
 pub mod io;
 pub mod layout;

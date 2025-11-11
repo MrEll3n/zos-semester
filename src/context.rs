@@ -1,22 +1,23 @@
-use std::fs::{File, OpenOptions};
+use crate::fs::filesystem::FileSystem;
+use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
 
 pub struct Context {
-    pub(crate) fs_file: Option<File>,
+    pub(crate) fs: Option<FileSystem>,
     pub(crate) fs_path: Option<PathBuf>,
 }
 
 impl Context {
     pub fn new() -> Self {
         Self {
-            fs_file: None,
+            fs: None,
             fs_path: None,
         }
     }
 
     pub fn open_fs<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
-        // Opens a file
+        // Opens (or creates) underlying image file
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -24,20 +25,27 @@ impl Context {
             .open(&path)?;
 
         // Fills instance's attributes
+
         self.fs_path = Some(path.as_ref().to_path_buf());
-        self.fs_file = Some(file);
+
+        let fs = FileSystem::open(file)?;
+        self.fs = Some(fs);
         Ok(())
     }
 
     pub fn close_fs(&mut self) {
-        self.fs_file = None;
+        if let Some(fs) = self.fs.as_mut() {
+            let _ = fs.flush();
+        }
+        self.fs = None;
+
         self.fs_path = None;
     }
 
-    pub fn fs_mut_file(&mut self) -> io::Result<&mut File> {
-        self.fs_file
+    pub fn fs_mut(&mut self) -> io::Result<&mut FileSystem> {
+        self.fs
             .as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Filesystem file is not opened"))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Filesystem is not opened"))
     }
 
     pub fn fs_path(&self) -> Option<&Path> {
