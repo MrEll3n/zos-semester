@@ -183,6 +183,107 @@ pub fn compute_layout(fs_bytes: u64, block_size: u32, bytes_per_inode: u32) -> S
     }
 }
 
+// ------------------------- Bitmap API -------------------------
+
+pub fn load_bitmap(f: &mut File, sb: &Superblock) -> io::Result<Vec<u8>> {
+    if sb.bitmap_count == 0 {
+        return Ok(Vec::new());
+    }
+    let mut buf = vec![0u8; (sb.bitmap_count as usize) * (BLOCK_SIZE as usize)];
+    read_span(
+        f,
+        sb.bitmap_start as u64,
+        sb.bitmap_count as u64,
+        BLOCK_SIZE,
+        &mut buf,
+    )?;
+    Ok(buf)
+}
+
+pub fn flush_bitmap(f: &mut File, sb: &Superblock, bitmap: &[u8]) -> io::Result<()> {
+    let expected = (sb.bitmap_count as usize) * (BLOCK_SIZE as usize);
+    if bitmap.len() != expected {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "bitmap length does not match superblock bitmap_count",
+        ));
+    }
+    write_span(
+        f,
+        sb.bitmap_start as u64,
+        sb.bitmap_count as u64,
+        BLOCK_SIZE,
+        bitmap,
+    )
+}
+
+#[inline]
+pub fn bitmap_is_set(bitmap: &[u8], idx: u32) -> bool {
+    let byte = (idx / 8) as usize;
+    let bit = (idx % 8) as u8;
+    (bitmap[byte] & (1u8 << bit)) != 0
+}
+
+#[inline]
+pub fn bitmap_set(bitmap: &mut [u8], idx: u32) {
+    let byte = (idx / 8) as usize;
+    let bit = (idx % 8) as u8;
+    bitmap[byte] |= 1 << bit;
+}
+
+#[inline]
+pub fn bitmap_clear(bitmap: &mut [u8], idx: u32) {
+    let byte = (idx / 8) as usize;
+    let bit = (idx % 8) as u8;
+    bitmap[byte] &= !(1 << bit);
+}
+
+pub fn find_free_data_block(bitmap: &[u8], limit: u32) -> Option<u32> {
+    for (i, b) in bitmap.iter().enumerate() {
+        if *b != 0xFF {
+            for bit in 0..8 {
+                let id = (i as u32) * 8 + bit;
+                if id >= limit {
+                    return None;
+                }
+                if b & (1 << bit) == 0 {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn alloc_data_block(bitmap: &mut [u8], sb: &Superblock) -> Option<u32> {
+    if let Some(rel) = find_free_data_block(&bitmap[..], sb.block_count) {
+        bitmap_set(bitmap, rel);
+        Some(sb.block_start + rel)
+    } else {
+        None
+    }
+}
+
+pub fn free_data_block(bitmap: &mut [u8], sb: &Superblock, abs_block: u32) -> io::Result<()> {
+    if abs_block < sb.block_start {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "block before data area",
+        ));
+    }
+    let rel = abs_block - sb.block_start;
+    if rel >= sb.block_count {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "block beyond data area",
+        ));
+    }
+    bitmap_clear(bitmap, rel);
+    Ok(())
+}
+
+// --------------------- End of Bitmap API ----------------------
+
 pub fn read_inode(f: &mut File, sb: &Superblock, inode_id: u32) -> io::Result<Inode> {
     if inode_id >= sb.inode_count {
         return Err(io::Error::new(
@@ -255,3 +356,4 @@ pub fn write_inode(f: &mut File, sb: &Superblock, inode_id: u32, inode: &Inode) 
     f.write_all(&buf)?;
     Ok(())
 }
+

@@ -24,5 +24,5 @@ pub struct Inode {
     pub _reserved: [u8; 7],       // 7  (offset 41..47)
 }
 
-#[repr(C)]
-pub struct Directory
+// #[repr(C)]
+// pub struct Directory
