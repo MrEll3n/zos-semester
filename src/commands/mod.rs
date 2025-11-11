@@ -10,10 +10,6 @@ pub struct Registry {
 impl Registry {
     pub fn new() -> Self {
         let mut map = HashMap::new();
-        map.insert(
-            "command1",
-            crate::commands::command1::handle_argv as Handler,
-        );
         map.insert("exit", crate::commands::exit::handle_argv as Handler);
         map.insert("cd", crate::commands::cd::handle_argv as Handler);
         map.insert("pwd", crate::commands::pwd::handle_argv as Handler);
@@ -46,7 +42,6 @@ impl Registry {
 
 pub mod cat;
 pub mod cd;
-pub mod command1;
 pub mod cp;
 pub mod exit;
 pub mod format;
