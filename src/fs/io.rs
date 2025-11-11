@@ -291,37 +291,10 @@ pub fn read_inode(f: &mut File, sb: &Superblock, inode_id: u32) -> io::Result<In
     let block_size_bytes = BLOCK_SIZE as u64;
     let inode_table_base = (sb.inode_start as u64) * block_size_bytes;
     let inode_offset = inode_table_base + (inode_id as u64) * (INODE_SIZE as u64);
-
     let mut buf = vec![0u8; INODE_SIZE];
     f.seek(SeekFrom::Start(inode_offset))?;
     f.read_exact(&mut buf)?;
-
-    let file_size = u64::from_le_bytes(buf[0..8].try_into().unwrap());
-    let id = u32::from_le_bytes(buf[8..12].try_into().unwrap());
-
-    let mut single_directs = [0u32; 5];
-    for i in 0..5 {
-        let start = 12 + i * 4;
-        single_directs[i] = u32::from_le_bytes(buf[start..start + 4].try_into().unwrap());
-    }
-
-    let double_indirect = u32::from_le_bytes(buf[32..36].try_into().unwrap());
-    let triple_indirect = u32::from_le_bytes(buf[36..40].try_into().unwrap());
-    let file_type = buf[40];
-    let link_count = buf[41];
-    let mut _reserved = [0u8; 6];
-    _reserved.copy_from_slice(&buf[41..48]);
-
-    Ok(Inode {
-        file_size,
-        id,
-        single_directs,
-        double_indirect,
-        triple_indirect,
-        file_type,
-        link_count,
-        _reserved,
-    })
+    Ok(Inode::from_bytes(&buf))
 }
 
 pub fn write_inode(f: &mut File, sb: &Superblock, inode_id: u32, inode: &Inode) -> io::Result<()> {
@@ -335,22 +308,7 @@ pub fn write_inode(f: &mut File, sb: &Superblock, inode_id: u32, inode: &Inode) 
     let block_size_bytes = BLOCK_SIZE as u64;
     let inode_table_base = (sb.inode_start as u64) * block_size_bytes;
     let inode_offset = inode_table_base + (inode_id as u64) * (INODE_SIZE as u64);
-
-    let mut buf = vec![0u8; INODE_SIZE];
-
-    // Serialize fields to little-endian byte layout
-    buf[0..8].copy_from_slice(&inode.file_size.to_le_bytes());
-    buf[8..12].copy_from_slice(&inode.id.to_le_bytes());
-    for i in 0..5 {
-        let start = 12 + i * 4;
-        buf[start..start + 4].copy_from_slice(&inode.single_directs[i].to_le_bytes());
-    }
-    buf[32..36].copy_from_slice(&inode.double_indirect.to_le_bytes());
-    buf[36..40].copy_from_slice(&inode.triple_indirect.to_le_bytes());
-    buf[40] = inode.file_type;
-    buf[41] = inode.link_count;
-    buf[42..48].copy_from_slice(&inode._reserved);
-
+    let buf = inode.to_bytes();
     f.seek(SeekFrom::Start(inode_offset))?;
     f.write_all(&buf)?;
     Ok(())
