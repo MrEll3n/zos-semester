@@ -15,6 +15,22 @@ impl Registry {
             crate::commands::command1::handle_argv as Handler,
         );
         map.insert("exit", crate::commands::exit::handle_argv as Handler);
+        map.insert("cd", crate::commands::cd::handle_argv as Handler);
+        map.insert("pwd", crate::commands::pwd::handle_argv as Handler);
+        map.insert("mkdir", crate::commands::mkdir::handle_argv as Handler);
+        map.insert("rmdir", crate::commands::rmdir::handle_argv as Handler);
+        map.insert("ls", crate::commands::ls::handle_argv as Handler);
+        map.insert("cat", crate::commands::cat::handle_argv as Handler);
+        map.insert("rm", crate::commands::rm::handle_argv as Handler);
+        map.insert("cp", crate::commands::cp::handle_argv as Handler);
+        map.insert("mv", crate::commands::mv::handle_argv as Handler);
+        map.insert("info", crate::commands::info::handle_argv as Handler);
+        map.insert("incp", crate::commands::incp::handle_argv as Handler);
+        map.insert("outcp", crate::commands::outcp::handle_argv as Handler);
+        map.insert("load", crate::commands::load::handle_argv as Handler);
+        map.insert("format", crate::commands::format::handle_argv as Handler);
+        map.insert("statfs", crate::commands::statfs::handle_argv as Handler);
+        map.insert("slink", crate::commands::slink::handle_argv as Handler);
 
         Self { map }
     }
@@ -28,5 +44,21 @@ impl Registry {
     }
 }
 
+pub mod cat;
+pub mod cd;
 pub mod command1;
+pub mod cp;
 pub mod exit;
+pub mod format;
+pub mod incp;
+pub mod info;
+pub mod load;
+pub mod ls;
+pub mod mkdir;
+pub mod mv;
+pub mod outcp;
+pub mod pwd;
+pub mod rm;
+pub mod rmdir;
+pub mod slink;
+pub mod statfs;
