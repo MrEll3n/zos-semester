@@ -6,3 +6,6 @@ pub const DEFAULT_FS_BYTES: u64 = 600 * 1024 * 1024; // 600 MiB
 // lower BPI -> more inodes = good for small files
 // higher BPI -> less inodes = good for bigger files
 pub const DEFAULT_BPI: u32 = 16 * 1024; // 16 KiB
+pub const DIR_NAME_LEN: usize = 12;
+pub const DIR_ENTRY_SIZE: usize = 16;
+pub const DIR_INODE_UNUSED: u32 = u32::MAX;

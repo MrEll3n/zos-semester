@@ -307,8 +307,9 @@ pub fn read_inode(f: &mut File, sb: &Superblock, inode_id: u32) -> io::Result<In
 
     let double_indirect = u32::from_le_bytes(buf[32..36].try_into().unwrap());
     let triple_indirect = u32::from_le_bytes(buf[36..40].try_into().unwrap());
-    let is_directory = buf[40];
-    let mut _reserved = [0u8; 7];
+    let file_type = buf[40];
+    let link_count = buf[41];
+    let mut _reserved = [0u8; 6];
     _reserved.copy_from_slice(&buf[41..48]);
 
     Ok(Inode {
@@ -317,7 +318,8 @@ pub fn read_inode(f: &mut File, sb: &Superblock, inode_id: u32) -> io::Result<In
         single_directs,
         double_indirect,
         triple_indirect,
-        is_directory,
+        file_type,
+        link_count,
         _reserved,
     })
 }
@@ -345,8 +347,9 @@ pub fn write_inode(f: &mut File, sb: &Superblock, inode_id: u32, inode: &Inode) 
     }
     buf[32..36].copy_from_slice(&inode.double_indirect.to_le_bytes());
     buf[36..40].copy_from_slice(&inode.triple_indirect.to_le_bytes());
-    buf[40] = inode.is_directory;
-    buf[41..48].copy_from_slice(&inode._reserved);
+    buf[40] = inode.file_type;
+    buf[41] = inode.link_count;
+    buf[42..48].copy_from_slice(&inode._reserved);
 
     f.seek(SeekFrom::Start(inode_offset))?;
     f.write_all(&buf)?;
