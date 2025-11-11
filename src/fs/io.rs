@@ -183,8 +183,6 @@ pub fn compute_layout(fs_bytes: u64, block_size: u32, bytes_per_inode: u32) -> S
     }
 }
 
-// ------------------------- Bitmap API -------------------------
-
 pub fn load_bitmap(f: &mut File, sb: &Superblock) -> io::Result<Vec<u8>> {
     if sb.bitmap_count == 0 {
         return Ok(Vec::new());
@@ -282,8 +280,6 @@ pub fn free_data_block(bitmap: &mut [u8], sb: &Superblock, abs_block: u32) -> io
     Ok(())
 }
 
-// --------------------- End of Bitmap API ----------------------
-
 pub fn read_inode(f: &mut File, sb: &Superblock, inode_id: u32) -> io::Result<Inode> {
     if inode_id >= sb.inode_count {
         return Err(io::Error::new(
@@ -356,4 +352,3 @@ pub fn write_inode(f: &mut File, sb: &Superblock, inode_id: u32, inode: &Inode) 
     f.write_all(&buf)?;
     Ok(())
 }
-
