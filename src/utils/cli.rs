@@ -3,7 +3,7 @@ use crate::utils::file_man::handle_fs;
 use std::{env, process};
 
 fn handle_help(exit: bool) {
-    println!("Usage: elfs-emu [--help] <filesystem.elfs>");
+    eprintln!("Usage: elfs-emu [--help] <filesystem.elfs>");
     if exit {
         process::exit(1);
     }

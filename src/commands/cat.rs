@@ -1,4 +1,5 @@
 use crate::context::Context;
+use std::io::{self, Write};
 
 /// `cat s1`
 ///
@@ -15,7 +16,7 @@ use crate::context::Context;
 pub fn handle_argv(argv: &[&str], context: &mut Context) {
     // Require exactly one argument
     if argv.len() != 1 {
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
     let path = argv[0];
@@ -24,7 +25,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let fs = match context.fs_mut() {
         Ok(fs) => fs,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -33,7 +34,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode_id = match fs.resolve_path(path) {
         Ok(id) => id,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -42,14 +43,14 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode = match fs.read_inode(inode_id) {
         Ok(ino) => ino,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
 
     // Must be regular file (file_type == 0)
     if inode.file_type != 0 {
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
 
@@ -61,13 +62,23 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         return;
     }
 
-    let mut buf = vec![0u8; size];
-    if let Err(_) = fs.read_file_range(&inode, 0, &mut buf) {
-        println!("FILE NOT FOUND");
-        return;
+    // Stream content as lossy UTF-8 in chunks (avoid raw binary that UI může zahodit)
+    let mut remaining = size;
+    let mut offset: usize = 0;
+    const CHUNK: usize = 64 * 1024;
+    while remaining > 0 {
+        let to_read = CHUNK.min(remaining);
+        let mut chunk = vec![0u8; to_read];
+        if let Err(_) = fs.read_file_range(&inode, offset as u64, &mut chunk) {
+            eprintln!("FILE NOT FOUND");
+            return;
+        }
+        let s = String::from_utf8_lossy(&chunk);
+        eprint!("{}", s);
+        remaining -= to_read;
+        offset += to_read;
     }
-
-    // Print file content (lossy UTF-8)
-    let s = String::from_utf8_lossy(&buf);
-    print!("{s}");
+    // Konec souboru – přidej newline
+    eprintln!();
+    let _ = std::io::stderr().flush();
 }

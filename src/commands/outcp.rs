@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 pub fn handle_argv(argv: &[&str], context: &mut Context) {
     // Validate arguments
     if argv.len() != 2 {
-        println!("PATH NOT FOUND");
+        eprintln!("PATH NOT FOUND");
         return;
     }
     let fs_src = argv[0];
@@ -31,7 +31,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let fs = match context.fs_mut() {
         Ok(fs) => fs,
         Err(_) => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
@@ -40,7 +40,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode_id = match fs.resolve_path(fs_src) {
         Ok(id) => id,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -49,13 +49,13 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode = match fs.read_inode(inode_id) {
         Ok(i) => i,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
     if inode.file_type != 0 {
         // Not a regular file (directory or symlink target resolved to non-file)
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
 
@@ -64,7 +64,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let mut buf = vec![0u8; size];
     if size > 0 {
         if let Err(_) = fs.read_file_range(&inode, 0, &mut buf) {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     }
@@ -74,7 +74,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     if let Some(parent) = host_path.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             if let Err(_) = create_dir_all(parent) {
-                println!("PATH NOT FOUND");
+                eprintln!("PATH NOT FOUND");
                 return;
             }
         }
@@ -89,17 +89,17 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     {
         Ok(mut f) => {
             if let Err(_) = f.write_all(&buf) {
-                println!("PATH NOT FOUND");
+                eprintln!("PATH NOT FOUND");
                 return;
             }
         }
         Err(_) => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     }
 
-    println!("OK");
+    eprintln!("OK");
 }
 
 /// Optional helper (not used directly by handler): attempt to write a slice to host path.

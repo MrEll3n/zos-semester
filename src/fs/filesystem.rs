@@ -41,6 +41,23 @@ impl FileSystem {
         Ok(())
     }
 
+    // Accessors for statfs and other read-only inspection
+    pub fn superblock(&self) -> &crate::fs::layout::Superblock {
+        &self.sb
+    }
+    pub fn data_bitmap(&self) -> &[u8] {
+        &self.data_bitmap
+    }
+    pub fn block_count(&self) -> u32 {
+        self.sb.block_count
+    }
+    pub fn inode_count(&self) -> u32 {
+        self.sb.inode_count
+    }
+    pub fn is_bitmap_dirty(&self) -> bool {
+        self.bitmap_dirty
+    }
+
     // Inode helpers
     pub fn read_inode(&mut self, id: u32) -> std::io::Result<crate::fs::layout::Inode> {
         crate::fs::io::read_inode(&mut self.file, &self.sb, id)
@@ -78,51 +95,351 @@ impl FileSystem {
 
     pub fn free_inode(&mut self, inode_id: u32) -> std::io::Result<()> {
         let mut ino = crate::fs::io::read_inode(&mut self.file, &self.sb, inode_id)?;
+
         // Release direct blocks
+
         for b in ino.single_directs.iter_mut() {
             if *b != 0 {
                 self.free_block(*b)?;
+
                 *b = 0;
             }
         }
-        // (Indirect blocks ignored in this minimal implementation)
+
+        // Release single-, double-, and triple-indirect data blocks (without capturing self in closures)
+
+        // Single-indirect (data pointers)
+        if ino.single_indirect != 0 {
+            let mut raw = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+
+            if crate::fs::io::read_block(
+                &mut self.file,
+                crate::fs::consts::BLOCK_SIZE,
+                ino.single_indirect as u64,
+                &mut raw,
+            )
+            .is_ok()
+            {
+                for chunk in raw.chunks_exact(4) {
+                    let p = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                    if p != 0 {
+                        let _ = self.free_block(p);
+                    }
+                }
+            }
+
+            let _ = self.free_block(ino.single_indirect);
+
+            ino.single_indirect = 0;
+        }
+
+        // Double-indirect (block of single-indirect blocks)
+
+        if ino.double_indirect != 0 {
+            let mut l2 = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+            if crate::fs::io::read_block(
+                &mut self.file,
+                crate::fs::consts::BLOCK_SIZE,
+                ino.double_indirect as u64,
+                &mut l2,
+            )
+            .is_ok()
+            {
+                for l2_chunk in l2.chunks_exact(4) {
+                    let l1_ptr =
+                        u32::from_le_bytes([l2_chunk[0], l2_chunk[1], l2_chunk[2], l2_chunk[3]]);
+                    if l1_ptr != 0 {
+                        let mut l1 = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                        if crate::fs::io::read_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            l1_ptr as u64,
+                            &mut l1,
+                        )
+                        .is_ok()
+                        {
+                            for d_chunk in l1.chunks_exact(4) {
+                                let d = u32::from_le_bytes([
+                                    d_chunk[0], d_chunk[1], d_chunk[2], d_chunk[3],
+                                ]);
+                                if d != 0 {
+                                    let _ = self.free_block(d);
+                                }
+                            }
+                        }
+                        let _ = self.free_block(l1_ptr);
+                    }
+                }
+            }
+
+            let _ = self.free_block(ino.double_indirect);
+            ino.double_indirect = 0;
+        }
+
         ino.file_size = 0;
+
         ino.file_type = 0;
+
         ino.link_count = 0;
+
         crate::fs::io::write_inode(&mut self.file, &self.sb, inode_id, &ino)
     }
 
-    // Block mapping (direct pointers only)
-    fn get_block(&self, inode: &crate::fs::layout::Inode, logical: u64) -> Option<u32> {
+    fn get_block(&mut self, inode: &crate::fs::layout::Inode, logical: u64) -> Option<u32> {
+        let block_size = crate::fs::consts::BLOCK_SIZE as u64;
+        let ptrs_per_block = (block_size / 4) as u64;
+
+        // Direct region
         if logical < 5 {
             let b = inode.single_directs[logical as usize];
-            if b == 0 { None } else { Some(b) }
-        } else {
-            None
+            return if b == 0 { None } else { Some(b) };
         }
+
+        // Single-indirect region
+        let single_start = 5;
+        let single_end = single_start + ptrs_per_block;
+        if logical < single_end {
+            let idx = logical - single_start;
+            return self.load_pointer(inode.single_indirect, idx);
+        }
+
+        // Double-indirect region
+        let double_start = single_end;
+        let double_span = ptrs_per_block * ptrs_per_block;
+        let double_end = double_start + double_span;
+        if logical < double_end {
+            let rel = logical - double_start;
+            let l2 = rel / ptrs_per_block;
+            let l1 = rel % ptrs_per_block;
+            let first = self.load_pointer(inode.double_indirect, l2)?;
+            return self.load_pointer(first, l1);
+        }
+
+        // Triple-indirect region removed (after double-indirect we stop)
+
+        None
+    }
+
+    // Helper: load nth 32-bit pointer from a pointer block id.
+    fn load_pointer(&mut self, block_id: u32, index: u64) -> Option<u32> {
+        if block_id == 0 {
+            return None;
+        }
+        let block_size = crate::fs::consts::BLOCK_SIZE as usize;
+        let ptrs_per_block = block_size / 4;
+        if (index as usize) >= ptrs_per_block {
+            return None;
+        }
+        let mut buf = vec![0u8; block_size];
+        if crate::fs::io::read_block(
+            &mut self.file,
+            crate::fs::consts::BLOCK_SIZE,
+            block_id as u64,
+            &mut buf,
+        )
+        .is_err()
+        {
+            return None;
+        }
+        let off = (index as usize) * 4;
+        let val = u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]]);
+        if val == 0 { None } else { Some(val) }
     }
 
     fn get_or_alloc_block(
         &mut self,
+
         inode: &mut crate::fs::layout::Inode,
+
         logical: u64,
     ) -> std::io::Result<Option<u32>> {
-        if logical >= 5 {
-            return Ok(None); // not supported beyond 5 direct blocks
-        }
-        let idx = logical as usize;
-        if inode.single_directs[idx] == 0 {
-            if let Some(b) = self.alloc_block() {
-                inode.single_directs[idx] = b;
-                self.write_inode(inode.id, inode)?;
-                Ok(Some(b))
+        if logical < 5 {
+            let idx = logical as usize;
+            if inode.single_directs[idx] == 0 {
+                if let Some(b) = self.alloc_block() {
+                    inode.single_directs[idx] = b;
+
+                    self.write_inode(inode.id, inode)?;
+
+                    Ok(Some(b))
+                } else {
+                    Ok(None)
+                }
             } else {
-                Ok(None)
+                Ok(Some(inode.single_directs[idx]))
             }
         } else {
-            Ok(Some(inode.single_directs[idx]))
+            // Indirect regions allocation (single / double / triple)
+            let block_size = crate::fs::consts::BLOCK_SIZE as u64;
+            let ptrs_per_block = (block_size / 4) as u64;
+
+            // Single-indirect
+            let single_start = 5;
+            let single_end = single_start + ptrs_per_block;
+            if logical < single_end {
+                let idx = logical - single_start;
+                // Inline single-indirect allocation (avoids helper borrowing issues)
+                if inode.single_indirect == 0 {
+                    if let Some(b) = self.alloc_block() {
+                        let zero = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                        crate::fs::io::write_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            b as u64,
+                            &zero,
+                        )?;
+                        inode.single_indirect = b;
+                        self.write_inode(inode.id, inode)?;
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                // Load single-indirect block
+                let mut sibuf = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                crate::fs::io::read_block(
+                    &mut self.file,
+                    crate::fs::consts::BLOCK_SIZE,
+                    inode.single_indirect as u64,
+                    &mut sibuf,
+                )?;
+                let off_si = (idx as usize) * 4;
+                let mut data_ptr = u32::from_le_bytes([
+                    sibuf[off_si],
+                    sibuf[off_si + 1],
+                    sibuf[off_si + 2],
+                    sibuf[off_si + 3],
+                ]);
+                if data_ptr == 0 {
+                    if let Some(new_b) = self.alloc_block() {
+                        data_ptr = new_b;
+                        let bytes = data_ptr.to_le_bytes();
+                        sibuf[off_si..off_si + 4].copy_from_slice(&bytes);
+                        crate::fs::io::write_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            inode.single_indirect as u64,
+                            &sibuf,
+                        )?;
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                return Ok(Some(data_ptr));
+            }
+
+            // Double-indirect
+            let double_start = single_end;
+            let double_span = ptrs_per_block * ptrs_per_block;
+            let double_end = double_start + double_span;
+            if logical < double_end {
+                let rel = logical - double_start;
+                let l2 = rel / ptrs_per_block;
+                let l1 = rel % ptrs_per_block;
+
+                // Ensure top-level double_indirect pointer block exists
+                if inode.double_indirect == 0 {
+                    if let Some(b) = self.alloc_block() {
+                        let zero = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                        crate::fs::io::write_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            b as u64,
+                            &zero,
+                        )?;
+                        inode.double_indirect = b;
+                        self.write_inode(inode.id, inode)?;
+                    } else {
+                        return Ok(None);
+                    }
+                }
+
+                // Load level-2 (double_indirect) block
+                let mut l2_buf = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                crate::fs::io::read_block(
+                    &mut self.file,
+                    crate::fs::consts::BLOCK_SIZE,
+                    inode.double_indirect as u64,
+                    &mut l2_buf,
+                )?;
+                let off_l2 = (l2 as usize) * 4;
+                let mut second = u32::from_le_bytes([
+                    l2_buf[off_l2],
+                    l2_buf[off_l2 + 1],
+                    l2_buf[off_l2 + 2],
+                    l2_buf[off_l2 + 3],
+                ]);
+                if second == 0 {
+                    if let Some(new_b) = self.alloc_block() {
+                        // Zero new level-1 pointer block
+                        let zero = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                        crate::fs::io::write_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            new_b as u64,
+                            &zero,
+                        )?;
+                        second = new_b;
+                        let bytes = second.to_le_bytes();
+                        l2_buf[off_l2..off_l2 + 4].copy_from_slice(&bytes);
+                        crate::fs::io::write_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            inode.double_indirect as u64,
+                            &l2_buf,
+                        )?;
+                    } else {
+                        return Ok(None);
+                    }
+                }
+
+                // Load level-1 block
+                let mut l1_buf = vec![0u8; crate::fs::consts::BLOCK_SIZE as usize];
+                crate::fs::io::read_block(
+                    &mut self.file,
+                    crate::fs::consts::BLOCK_SIZE,
+                    second as u64,
+                    &mut l1_buf,
+                )?;
+                let off_l1 = (l1 as usize) * 4;
+                let mut data_ptr = u32::from_le_bytes([
+                    l1_buf[off_l1],
+                    l1_buf[off_l1 + 1],
+                    l1_buf[off_l1 + 2],
+                    l1_buf[off_l1 + 3],
+                ]);
+                if data_ptr == 0 {
+                    if let Some(new_b) = self.alloc_block() {
+                        data_ptr = new_b;
+                        let bytes = data_ptr.to_le_bytes();
+                        l1_buf[off_l1..off_l1 + 4].copy_from_slice(&bytes);
+                        crate::fs::io::write_block(
+                            &mut self.file,
+                            crate::fs::consts::BLOCK_SIZE,
+                            second as u64,
+                            &l1_buf,
+                        )?;
+                    } else {
+                        return Ok(None);
+                    }
+                }
+
+                return Ok(Some(data_ptr));
+            }
+
+            // Triple-indirect allocation removed (no support beyond double-indirect)
+            // Any logical index past double-indirect range returns None.
+
+            Ok(None) // beyond supported range
         }
     }
+
+    // (Removed ensure_pointer helper)
+
+    // (Removed ensure_nth_pointer helper)
+
+    // (Removed alloc_in_pointer_block: single-indirect handled inline in get_or_alloc_block)
+
+    // (Removed alloc_nth_in_block: replaced by explicit inline manipulation in double-indirect branch)
 
     // File read (range) - assumes range is within file_size
     pub fn read_file_range(
@@ -165,27 +482,41 @@ impl FileSystem {
         Ok(())
     }
 
-    // File write (range) - allocates direct blocks as needed
     pub fn write_file_range(
         &mut self,
         inode: &mut crate::fs::layout::Inode,
+
         offset: u64,
+
         data: &[u8],
     ) -> std::io::Result<()> {
         use std::cmp::min;
+
         let block_size = crate::fs::consts::BLOCK_SIZE as u64;
+
         let mut remaining = data.len();
+
         let mut cursor = offset;
+
         let mut src_pos = 0;
+
         while remaining > 0 {
             let logical = cursor / block_size;
-            if logical >= 5 {
+
+            // Compute maximum logical block with double-indirect support only
+            let ptrs_per_block = (crate::fs::consts::BLOCK_SIZE as u64) / 4;
+            let max_logical = 5                    // direct
+                + ptrs_per_block                   // single
+                + ptrs_per_block * ptrs_per_block; // double
+            if logical >= max_logical {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    "file too large for direct-only implementation",
+                    "file too large (exceeds double-indirect capacity)",
                 ));
             }
+
             let within = (cursor % block_size) as usize;
+
             let to_write = min(remaining, (block_size as usize) - within);
 
             let (abs_block, existed) = match self.get_block(inode, logical) {
@@ -460,6 +791,19 @@ impl FileSystem {
                 "missing name",
             ));
         }
+
+        // Globální normalizace: finální komponenta nesmí být "." ani ".." – ty se chovají
+        // jako traversal, ne jako jméno. Pokud cesta končí na "." nebo "..", považujeme ji
+        // za neplatnou pro účely získání jména (tj. chybí cílové jméno souboru/diru).
+        if let Some(last) = comps.last() {
+            if *last == "." || *last == ".." {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "missing name",
+                ));
+            }
+        }
+
         let name = comps.pop().unwrap().to_string();
         let is_abs = path.starts_with('/');
         let mut parents: Vec<u32> = if is_abs {
@@ -474,8 +818,29 @@ impl FileSystem {
         };
         let max_depth = 16;
 
+        // Normalizace zbylých komponent ('.' a '..') před delegací na resolver.
+        // Lokálně odstraníme '.'; '..' se pokusíme zpracovat popem předchozí komponenty.
+        // Pokud není co odebrat (nebo předchozí je už '..'), ponecháme '..' pro resolver,
+        // který správně upraví parents stack (umožní vícenásobné výstupy vzhůru).
+        let mut normalized: Vec<&str> = Vec::new();
+        for c in comps {
+            if c == "." {
+                continue;
+            } else if c == ".." {
+                if let Some(last) = normalized.last() {
+                    if *last != ".." {
+                        normalized.pop();
+                        continue;
+                    }
+                }
+                normalized.push("..");
+            } else {
+                normalized.push(c);
+            }
+        }
+
         let parent_id =
-            self.resolve_components_with_stack(start, &mut parents, &mut comps, 0, max_depth)?;
+            self.resolve_components_with_stack(start, &mut parents, &mut normalized, 0, max_depth)?;
 
         Ok((parent_id, name))
     }

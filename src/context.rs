@@ -25,7 +25,6 @@ impl Context {
             .open(&path)?;
 
         // Fills instance's attributes
-
         self.fs_path = Some(path.as_ref().to_path_buf());
 
         let fs = FileSystem::open(file)?;
@@ -37,9 +36,10 @@ impl Context {
         if let Some(fs) = self.fs.as_mut() {
             let _ = fs.flush();
         }
+        // Drop the in-memory filesystem but KEEP the last used path so commands like `format`
+        // can reuse it without requiring a re-open.
         self.fs = None;
-
-        self.fs_path = None;
+        // self.fs_path is intentionally preserved here.
     }
 
     pub fn fs_mut(&mut self) -> io::Result<&mut FileSystem> {

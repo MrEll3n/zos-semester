@@ -4,15 +4,20 @@ use colored::Colorize;
 use std::io;
 
 fn write_greet() {
-    println!(
+    eprintln!(
         "{}'s File System - {}",
         "MrEll3n".green(),
         env!("CARGO_PKG_VERSION").yellow()
     );
 }
 
-fn write_prefix() {
-    eprint!("> ");
+fn write_prefix(context: &mut Context) {
+    // Obtain current working directory (fallback to "/" if FS not opened)
+    let path = match context.fs_mut() {
+        Ok(fs) => fs.pwd().to_string(),
+        Err(_) => "/".to_string(),
+    };
+    eprint!("{}> ", path.blue());
 }
 
 pub fn handle_app_loop(context: &mut Context) {
@@ -22,7 +27,7 @@ pub fn handle_app_loop(context: &mut Context) {
     write_greet();
     loop {
         // before input
-        write_prefix();
+        write_prefix(context);
         let mut user_input = String::new();
 
         // user input

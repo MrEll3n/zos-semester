@@ -18,27 +18,31 @@ pub struct Superblock {
 // Structure that represents one inode - 48 B
 #[repr(C)]
 pub struct Inode {
-    pub file_size: u64,           // 8 (offset 0)
-    pub id: u32,                  // 4 (offset 8)
+    pub file_size: u64,           // 8  (offset 0..7)
+    pub id: u32,                  // 4  (offset 8..11)
     pub single_directs: [u32; 5], // 20 (offset 12..31)
-    pub double_indirect: u32,     // 4  (offset 32..35)
-    pub triple_indirect: u32,     // 4  (offset 36..39)
+    pub single_indirect: u32,     // 4  (offset 32..35) 1st level of indirection
+    pub double_indirect: u32,     // 4  (offset 36..39) 2nd level of indirection
     pub file_type: u8,            // 1  (offset 40) | 0 - file, 1 - dir, 2 - symlink
     pub link_count: u8,           // 1  (offset 41)
-    pub _reserved: [u8; 6],       // 6  (offset 41..47)
+    pub _reserved: [u8; 6],       // 6  (offset 42..47) remaining padding
 }
 
 impl Inode {
     pub fn to_bytes(&self) -> [u8; INODE_SIZE] {
         let mut buf = [0u8; INODE_SIZE];
+        // Fixed fields
         buf[0..8].copy_from_slice(&self.file_size.to_le_bytes());
         buf[8..12].copy_from_slice(&self.id.to_le_bytes());
+        // Direct blocks
         for i in 0..5 {
             let start = 12 + i * 4;
             buf[start..start + 4].copy_from_slice(&self.single_directs[i].to_le_bytes());
         }
-        buf[32..36].copy_from_slice(&self.double_indirect.to_le_bytes());
-        buf[36..40].copy_from_slice(&self.triple_indirect.to_le_bytes());
+        // Indirect levels
+        buf[32..36].copy_from_slice(&self.single_indirect.to_le_bytes());
+        buf[36..40].copy_from_slice(&self.double_indirect.to_le_bytes());
+        // Metadata
         buf[40] = self.file_type;
         buf[41] = self.link_count;
         buf[42..48].copy_from_slice(&self._reserved);
@@ -54,8 +58,8 @@ impl Inode {
             let start = 12 + i * 4;
             single_directs[i] = u32::from_le_bytes(buf[start..start + 4].try_into().unwrap());
         }
-        let double_indirect = u32::from_le_bytes(buf[32..36].try_into().unwrap());
-        let triple_indirect = u32::from_le_bytes(buf[36..40].try_into().unwrap());
+        let single_indirect = u32::from_le_bytes(buf[32..36].try_into().unwrap());
+        let double_indirect = u32::from_le_bytes(buf[36..40].try_into().unwrap());
         let file_type = buf[40];
         let link_count = buf[41];
         let mut _reserved = [0u8; 6];
@@ -64,8 +68,8 @@ impl Inode {
             file_size,
             id,
             single_directs,
+            single_indirect,
             double_indirect,
-            triple_indirect,
             file_type,
             link_count,
             _reserved,

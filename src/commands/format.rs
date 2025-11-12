@@ -45,9 +45,15 @@ use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
 
 pub fn handle_argv(argv: &[&str], context: &mut Context) {
+    // DEBUG: starting format command
+    // If a filesystem is already open, close (flush + drop) it before reformatting the image.
+    if context.fs.is_some() {
+        eprintln!("DBG format: closing existing filesystem before reinitialization");
+        context.close_fs();
+    }
     // Expect exactly one argument: size
     if argv.len() != 1 {
-        println!("CANNOT CREATE FILE");
+        eprintln!("CANNOT CREATE FILE");
         return;
     }
     let size_str = argv[0];
@@ -56,7 +62,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let fs_bytes = match parse_size(size_str) {
         Ok(b) => b,
         Err(_) => {
-            println!("CANNOT CREATE FILE");
+            eprintln!("CANNOT CREATE FILE");
             return;
         }
     };
@@ -65,7 +71,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let path = match context.fs_path() {
         Some(p) => p.to_path_buf(),
         None => {
-            println!("CANNOT CREATE FILE");
+            eprintln!("CANNOT CREATE FILE");
             return;
         }
     };
@@ -79,83 +85,119 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     {
         Ok(f) => f,
         Err(_) => {
-            println!("CANNOT CREATE FILE");
+            eprintln!("CANNOT CREATE FILE");
             return;
         }
     };
 
     // Resize underlying file to requested size
     if let Err(_) = file.set_len(fs_bytes) {
-        println!("CANNOT CREATE FILE");
+        eprintln!("CANNOT CREATE FILE");
         return;
     }
 
     // Compute layout
     let sb = compute_layout(fs_bytes, BLOCK_SIZE, DEFAULT_BPI);
+    eprintln!(
+        "DBG format: layout fs_size={} block_count={} bitmap_count={} inode_count={} inode_start={} block_start={}",
+        sb.fs_size, sb.block_count, sb.bitmap_count, sb.inode_count, sb.inode_start, sb.block_start
+    );
 
     // Write superblock (block 0)
-    if let Err(_) = write_superblock(&mut file, &sb) {
-        println!("CANNOT CREATE FILE");
+    if let Err(e) = write_superblock(&mut file, &sb) {
+        eprintln!("DBG format: write_superblock failed: {:?}", e);
+        eprintln!("CANNOT CREATE FILE");
         return;
     }
 
     // Zero bitmap blocks (if any)
     if sb.bitmap_count > 0 {
         let bitmap_bytes = (sb.bitmap_count as usize) * (BLOCK_SIZE as usize);
+        eprintln!(
+            "DBG format: zeroing bitmap blocks count={} total_bytes={}",
+            sb.bitmap_count, bitmap_bytes
+        );
         let zero_bitmap = vec![0u8; bitmap_bytes];
-        if let Err(_) = write_span(
+        if let Err(e) = write_span(
             &mut file,
             sb.bitmap_start as u64,
             sb.bitmap_count as u64,
             BLOCK_SIZE,
             &zero_bitmap,
         ) {
-            println!("CANNOT CREATE FILE");
+            eprintln!("DBG format: bitmap zeroing failed: {:?}", e);
+            eprintln!("CANNOT CREATE FILE");
             return;
         }
+        eprintln!("DBG format: bitmap zeroed successfully");
+    } else {
+        eprintln!("DBG format: no bitmap blocks (bitmap_count=0)");
     }
 
     // Zero inode table blocks
-    // Inode table block count = block_start - inode_start
+    // Inode table block count = sb.block_start - sb.inode_start
     let inode_table_block_count = sb.block_start.saturating_sub(sb.inode_start);
     if inode_table_block_count > 0 {
+        let inode_bytes = (inode_table_block_count as usize) * (BLOCK_SIZE as usize);
+        eprintln!(
+            "DBG format: zeroing inode table blocks count={} total_bytes={}",
+            inode_table_block_count, inode_bytes
+        );
         let zero_inode_blocks =
             vec![0u8; (inode_table_block_count as usize) * (BLOCK_SIZE as usize)];
-        if let Err(_) = write_span(
+        if let Err(e) = write_span(
             &mut file,
             sb.inode_start as u64,
             inode_table_block_count as u64,
             BLOCK_SIZE,
             &zero_inode_blocks,
         ) {
-            println!("CANNOT CREATE FILE");
+            eprintln!("DBG format: inode table zeroing failed: {:?}", e);
+            eprintln!("CANNOT CREATE FILE");
             return;
         }
+        eprintln!("DBG format: inode table zeroed successfully");
+    } else {
+        eprintln!("DBG format: no inode table blocks to zero (inode_table_block_count=0)");
     }
 
     // Initialize root inode (id = sb.root_inode_id, usually 0)
     if sb.inode_count == 0 {
         // No inode space -> invalid FS layout
-        println!("CANNOT CREATE FILE");
+        eprintln!("CANNOT CREATE FILE");
         return;
     }
 
     let root_id = sb.root_inode_id;
+
     let root_inode = Inode {
         file_size: 0,
+
         id: root_id,
+
         single_directs: [0u32; 5],
+
+        single_indirect: 0,
+
         double_indirect: 0,
-        triple_indirect: 0,
+
         file_type: 1, // directory
+
         link_count: 1,
+
         _reserved: [0u8; 6],
     };
 
-    if let Err(_) = write_inode(&mut file, &sb, root_id, &root_inode) {
-        println!("CANNOT CREATE FILE");
+    eprintln!(
+        "DBG format: initializing root inode id={} type=DIR",
+        root_id
+    );
+    if let Err(e) = write_inode(&mut file, &sb, root_id, &root_inode) {
+        eprintln!("DBG format: root inode write failed: {:?}", e);
+        eprintln!("CANNOT CREATE FILE");
         return;
     }
+    eprintln!("DBG format: root inode initialized");
 
     // Ensure data past written areas is physically present (optional pre-zero)
     // Since set_len already extended/truncated, and we zeroed metadata areas,
@@ -165,10 +207,10 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     match FileSystem::open(file) {
         Ok(fs) => {
             context.fs = Some(fs);
-            println!("OK");
+            eprintln!("OK");
         }
         Err(_) => {
-            println!("CANNOT CREATE FILE");
+            eprintln!("CANNOT CREATE FILE");
         }
     }
 }

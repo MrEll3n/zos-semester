@@ -21,7 +21,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let fs = match context.fs_mut() {
         Ok(fs) => fs,
         Err(_) => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
@@ -31,7 +31,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         0 => ".",
         1 => argv[0],
         _ => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
@@ -40,7 +40,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode_id = match fs.resolve_path(target) {
         Ok(id) => id,
         Err(_) => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
@@ -49,7 +49,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode = match fs.read_inode(inode_id) {
         Ok(ino) => ino,
         Err(_) => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
@@ -82,10 +82,10 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
                 // Read child's inode to determine type
                 match fs.read_inode(entry.inode_id) {
                     Ok(child) => match child.file_type {
-                        0 => println!("FILE: {}", name),
-                        1 => println!("DIR: {}", name),
-                        2 => println!("SYMLINK: {}", name),
-                        _ => println!("FILE: {}", name), // Fallback as regular file
+                        0 => eprintln!("FILE: {}", name),
+                        1 => eprintln!("DIR: {}", name),
+                        2 => eprintln!("SYMLINK: {}", name),
+                        _ => eprintln!("FILE: {}", name), // Fallback as regular file
                     },
                     Err(_) => {
                         // If child's inode can't be read, treat as not found (skip)
@@ -101,7 +101,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
             } else {
                 basename(target)
             };
-            println!("FILE: {}", name);
+            eprintln!("FILE: {}", name);
         }
         // Symlink – print single line (visible in listing; if ls is called on a symlink path directly)
         2 => {
@@ -110,9 +110,9 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
             } else {
                 basename(target)
             };
-            println!("SYMLINK: {}", name);
+            eprintln!("SYMLINK: {}", name);
         }
         // Unknown type – treat as not found
-        _ => println!("PATH NOT FOUND"),
+        _ => eprintln!("PATH NOT FOUND"),
     }
 }

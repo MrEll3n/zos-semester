@@ -15,7 +15,7 @@ pub fn handle_argv(_argv: &[&str], context: &mut Context) {
     let fs = match context.fs_mut() {
         Ok(fs) => fs,
         Err(_) => {
-            println!("/");
+            eprintln!("/");
             return;
         }
     };
@@ -24,20 +24,20 @@ pub fn handle_argv(_argv: &[&str], context: &mut Context) {
     let cur_id = match fs.resolve_path(".") {
         Ok(id) => id,
         Err(_) => {
-            println!("/");
+            eprintln!("/");
             return;
         }
     };
     let root_id = match fs.resolve_path("/") {
         Ok(id) => id,
         Err(_) => {
-            println!("/");
+            eprintln!("/");
             return;
         }
     };
 
     if cur_id == root_id {
-        println!("/");
+        eprintln!("/");
         return;
     }
 

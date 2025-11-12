@@ -28,7 +28,7 @@ use std::io::{BufRead, BufReader};
 pub fn handle_argv(argv: &[&str], context: &mut Context) {
     // Validate number of arguments (exactly one expected: path to host file)
     if argv.len() != 1 {
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
     let host_path = argv[0];
@@ -37,7 +37,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let file = match File::open(host_path) {
         Ok(f) => f,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -53,7 +53,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
             Err(_) => {
                 // If a read error occurs mid-way, stop further processing.
                 // You could decide to print a different error; spec only defines FILE NOT FOUND vs OK.
-                println!("FILE NOT FOUND");
+                eprintln!("FILE NOT FOUND");
                 return;
             }
         };
@@ -79,5 +79,5 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     }
 
     // Finished processing file
-    println!("OK");
+    eprintln!("OK");
 }

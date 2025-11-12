@@ -12,7 +12,7 @@ use crate::context::Context;
 pub fn handle_argv(argv: &[&str], context: &mut Context) {
     // Ověření argumentů
     if argv.len() != 1 {
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
     let path = argv[0];
@@ -21,7 +21,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let fs = match context.fs_mut() {
         Ok(fs) => fs,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -30,7 +30,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode_id = match fs.resolve_path(path) {
         Ok(id) => id,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -39,13 +39,13 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let inode = match fs.read_inode(inode_id) {
         Ok(i) => i,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
     if inode.file_type == 1 {
         // Je to adresář -> rm neumí mazat adresáře
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
 
@@ -53,7 +53,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let (parent_id, name) = match fs.resolve_parent_and_name(path) {
         Ok(v) => v,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
@@ -62,14 +62,14 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let mut parent_inode = match fs.read_inode(parent_id) {
         Ok(i) => i,
         Err(_) => {
-            println!("FILE NOT FOUND");
+            eprintln!("FILE NOT FOUND");
             return;
         }
     };
 
     // Odebrat záznam z adresáře rodiče
     if let Err(_) = fs.dir_remove_entry(&mut parent_inode, &name) {
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
 
@@ -77,9 +77,9 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     if let Err(_) = fs.free_inode(inode_id) {
         // V extrémním případě by bylo vhodné pokusit se zvrátit odstranění záznamu,
         // ale v rámci zadání stačí signalizovat chybu.
-        println!("FILE NOT FOUND");
+        eprintln!("FILE NOT FOUND");
         return;
     }
 
-    println!("OK");
+    eprintln!("OK");
 }

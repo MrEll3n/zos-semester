@@ -22,7 +22,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     let fs = match context.fs_mut() {
         Ok(fs) => fs,
         Err(_) => {
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
@@ -33,15 +33,15 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         1 => argv[0],
         _ => {
             // Too many arguments: treat as invalid path.
-            println!("PATH NOT FOUND");
+            eprintln!("PATH NOT FOUND");
             return;
         }
     };
 
     // Attempt to change directory.
     match fs.cd(target) {
-        Ok(()) => println!("OK"),
-        Err(_) => println!("PATH NOT FOUND"),
+        Ok(()) => (),
+        Err(_) => eprintln!("PATH NOT FOUND"),
     }
 }
 
