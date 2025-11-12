@@ -1,8 +1,0 @@
-brew install zig jq
-cargo install cargo-xwin cargo-zigbuild
-rustup target add \
-  x86_64-pc-windows-msvc \
-  x86_64-unknown-linux-musl \
-  aarch64-unknown-linux-musl \
-  x86_64-apple-darwin \
-  aarch64-apple-darwin
