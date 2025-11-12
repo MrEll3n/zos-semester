@@ -2,6 +2,6 @@ format 10GB
 mkdir dir1
 mkdir dir2
 cd dir1
-incp ./target/debug/elfs-emu.exe .
-mv elfs-emu.exe elfs.exe
-cp elfs.exe ../elfs.exe
+incp aaa .
+mv aaa a
+cp a ../a

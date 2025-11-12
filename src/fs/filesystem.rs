@@ -67,6 +67,12 @@ impl FileSystem {
         id: u32,
         inode: &crate::fs::layout::Inode,
     ) -> std::io::Result<()> {
+        if id != inode.id {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "inode id mismatch",
+            ));
+        }
         crate::fs::io::write_inode(&mut self.file, &self.sb, id, inode)
     }
 
@@ -94,6 +100,12 @@ impl FileSystem {
     }
 
     pub fn free_inode(&mut self, inode_id: u32) -> std::io::Result<()> {
+        if inode_id == self.sb.root_inode_id {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "cannot free root inode",
+            ));
+        }
         let mut ino = crate::fs::io::read_inode(&mut self.file, &self.sb, inode_id)?;
 
         // Release direct blocks

@@ -24,6 +24,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         eprintln!("PATH NOT FOUND");
         return;
     }
+
     let src_path = argv[0];
     let dst_path = argv[1];
 
@@ -46,6 +47,8 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         eprintln!("FILE NOT FOUND");
         return;
     }
+    debug_assert_eq!(src_inode.id, src_inode_id);
+    debug_assert_eq!(src_inode.file_type, 0);
 
     // Načti obsah zdroje
     let src_size = src_inode.file_size as usize;
@@ -62,6 +65,8 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         eprintln!("PATH NOT FOUND");
         return;
     }
+
+    // Pokud path už existuje a je adresář, odmítnout
     if fs
         .resolve_path(dst_path)
         .map(|id| {
@@ -75,7 +80,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         return;
     }
 
-    // Získat parent + jméno (musí projít normalizací v FS)
+    // Získat parent + jméno
     let (dst_parent_id, dst_name) = match fs.resolve_parent_and_name(dst_path) {
         Ok((pid, name)) => (pid, name),
         Err(_) => {
@@ -85,7 +90,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     };
 
     // Validace jména
-    if dst_name.is_empty() || dst_name == "." || dst_name == ".." {
+    if dst_name.is_empty() || dst_name == "." || dst_name == ".." || dst_name.contains('/') {
         eprintln!("PATH NOT FOUND");
         return;
     }
@@ -106,8 +111,10 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         eprintln!("PATH NOT FOUND");
         return;
     }
+    debug_assert_eq!(dst_parent_inode.id, dst_parent_id);
+    debug_assert_eq!(dst_parent_inode.file_type, 1);
 
-    // Kolize?
+    // Kolize? – existuje položka se jménem v parentu
     let existing = match fs.dir_find(&dst_parent_inode, &dst_name) {
         Ok(v) => v,
         Err(_) => {
@@ -116,7 +123,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         }
     };
 
-    // No-op: cp file file -> OK
+    // No-op: cp file file -> pokud jde o stejný inode
     if let Some((_slot, entry)) = &existing {
         if entry.inode_id == src_inode_id {
             eprintln!("OK");
@@ -138,7 +145,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
             return;
         }
 
-        // 1) Nový inode
+        // --- nový inode ---
         let new_id = match fs.alloc_inode() {
             Ok(Some(id)) => id,
             Ok(None) => {
@@ -158,6 +165,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
                 return;
             }
         };
+        new_inode.id = new_id;
         new_inode.file_type = 0;
         new_inode.link_count = 1;
         new_inode.file_size = 0;
@@ -165,20 +173,20 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         new_inode.single_indirect = 0;
         new_inode.double_indirect = 0;
 
-        // Persist initial inode state (důležité pro alokátor)
         if let Err(_) = fs.write_inode(new_id, &new_inode) {
             let _ = fs.free_inode(new_id);
             eprintln!("PATH NOT FOUND");
             return;
         }
 
+        // Zápis dat
         if !data.is_empty() {
+            debug_assert_eq!(new_inode.file_type, 0);
             if let Err(_) = fs.write_file_range(&mut new_inode, 0, &data) {
                 let _ = fs.free_inode(new_id);
                 eprintln!("FILE NOT FOUND");
                 return;
             }
-            // DŮLEŽITÉ: persistnout změny po zápisu dat
             if let Err(_) = fs.write_inode(new_id, &new_inode) {
                 let _ = fs.free_inode(new_id);
                 eprintln!("PATH NOT FOUND");
@@ -186,15 +194,31 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
             }
         }
 
-        // 2) Replace (nejdřív odstranění starého entry)
+        // Nahraď dirent
         if let Err(_) = fs.dir_remove_entry(&mut dst_parent_inode, &dst_name) {
             let _ = fs.free_inode(new_id);
             eprintln!("PATH NOT FOUND");
             return;
         }
-        if let Err(_) = fs.dir_add_entry(&mut dst_parent_inode, &dst_name, new_id) {
-            // rollback
+        if let Err(_) = fs.write_inode(dst_parent_id, &dst_parent_inode) {
             let _ = fs.dir_add_entry(&mut dst_parent_inode, &dst_name, old_inode.id);
+            let _ = fs.write_inode(dst_parent_id, &dst_parent_inode);
+            let _ = fs.free_inode(new_id);
+            eprintln!("PATH NOT FOUND");
+            return;
+        }
+
+        if let Err(_) = fs.dir_add_entry(&mut dst_parent_inode, &dst_name, new_id) {
+            let _ = fs.dir_add_entry(&mut dst_parent_inode, &dst_name, old_inode.id);
+            let _ = fs.write_inode(dst_parent_id, &dst_parent_inode);
+            let _ = fs.free_inode(new_id);
+            eprintln!("PATH NOT FOUND");
+            return;
+        }
+        if let Err(_) = fs.write_inode(dst_parent_id, &dst_parent_inode) {
+            let _ = fs.dir_remove_entry(&mut dst_parent_inode, &dst_name);
+            let _ = fs.dir_add_entry(&mut dst_parent_inode, &dst_name, old_inode.id);
+            let _ = fs.write_inode(dst_parent_id, &dst_parent_inode);
             let _ = fs.free_inode(new_id);
             eprintln!("PATH NOT FOUND");
             return;
@@ -205,7 +229,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
         return;
     }
 
-    // Nový soubor
+    // --- cílový soubor neexistuje ---
     let new_id = match fs.alloc_inode() {
         Ok(Some(id)) => id,
         Ok(None) => {
@@ -225,6 +249,7 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
             return;
         }
     };
+    new_inode.id = new_id;
     new_inode.file_type = 0;
     new_inode.link_count = 1;
     new_inode.file_size = 0;
@@ -232,7 +257,6 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     new_inode.single_indirect = 0;
     new_inode.double_indirect = 0;
 
-    // Persist initial inode state (důležité pro alokátor)
     if let Err(_) = fs.write_inode(new_id, &new_inode) {
         let _ = fs.free_inode(new_id);
         eprintln!("PATH NOT FOUND");
@@ -240,19 +264,27 @@ pub fn handle_argv(argv: &[&str], context: &mut Context) {
     }
 
     if !data.is_empty() {
+        debug_assert_eq!(new_inode.file_type, 0);
         if let Err(_) = fs.write_file_range(&mut new_inode, 0, &data) {
             let _ = fs.free_inode(new_id);
             eprintln!("FILE NOT FOUND");
             return;
         }
-        // DŮLEŽITÉ: persistnout změny po zápisu dat
         if let Err(_) = fs.write_inode(new_id, &new_inode) {
             let _ = fs.free_inode(new_id);
             eprintln!("PATH NOT FOUND");
             return;
         }
     }
+
     if let Err(_) = fs.dir_add_entry(&mut dst_parent_inode, &dst_name, new_id) {
+        let _ = fs.free_inode(new_id);
+        eprintln!("PATH NOT FOUND");
+        return;
+    }
+    if let Err(_) = fs.write_inode(dst_parent_id, &dst_parent_inode) {
+        let _ = fs.dir_remove_entry(&mut dst_parent_inode, &dst_name);
+        let _ = fs.write_inode(dst_parent_id, &dst_parent_inode);
         let _ = fs.free_inode(new_id);
         eprintln!("PATH NOT FOUND");
         return;
